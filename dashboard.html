@@ -24,8 +24,10 @@
    </div>
 
    <!-- Transcript -->
-   <div class="card">
+   <div class="card" id="notes">
       <h3>Meeting Transcript / Notes</h3>
+      <label for="meetingDate">Date:</label>
+      <input type="date" id="meetingDate"> <br>
       <textarea id="transcript" placeholder="Paste transcript or notes here..."></textarea>
    </div>
 
@@ -53,7 +55,7 @@
    <!-- Attendance -->
    <div class="card">
       <h3>Attendance</h3>
-      <ul>
+      <ul id="attendanceList">
          <li><input type="checkbox" checked> Jason Empie</li>
          <li><input type="checkbox" checked> Gentz Franz</li>
          <li><input type="checkbox"> Devin Bryson</li>
@@ -77,6 +79,7 @@
    
 <script src="record.js"></script>
 <script src="minutes.js"></script>
+<script src="export.js"></script>
 
 </body>
 </html>
