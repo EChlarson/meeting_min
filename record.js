@@ -3,6 +3,8 @@ let audioChunks = [];
 let timerInterval;
 let secondsElapsed = 0;
 let currentMeetingId = null;
+const DRAFT_KEY = "meetingDraft";
+let autoSaveTimer = null;
 
   function startRecording() {
     navigator.mediaDevices.getUserMedia({ audio: true })
@@ -97,6 +99,9 @@ let currentMeetingId = null;
     }
 
     setMeetings(meetings);
+
+    clearDraft();
+    saveDraft(); // immediately store the latest state as a fresh draft
 
     // If you're on Saved tab, refresh list
     if (document.getElementById("view-saved")?.classList.contains("active")) {
@@ -234,3 +239,93 @@ function newMeeting() {
   const saveBtn = document.getElementById("saveBtn");
   if (saveBtn) saveBtn.textContent = "Save Meeting";
 }
+
+// Auto Save 
+function collectDraftData() {
+  const title = document.getElementById("meetingTitle")?.value || "";
+  const date = document.getElementById("meetingDate")?.value || "";
+  const notes = document.getElementById("meetingNotes")?.value || "";
+  const minutes = document.getElementById("meetingMinutes")?.value || "";
+
+  const attendance = [];
+  document.querySelectorAll("#attendanceList input").forEach(box => {
+    attendance.push({
+      name: box.parentElement.textContent.trim(),
+      present: box.checked
+    });
+  });
+
+  return {
+    currentMeetingId, // so drafts stay tied to an opened meeting
+    title,
+    date,
+    notes,
+    minutes,
+    attendance,
+    savedAt: Date.now()
+  };
+}
+
+function saveDraft() {
+  const draft = collectDraftData();
+  localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+}
+
+function loadDraft() {
+  const raw = localStorage.getItem(DRAFT_KEY);
+  if (!raw) return;
+
+  let draft;
+  try {
+    draft = JSON.parse(raw);
+  } catch {
+    return;
+  }
+
+  // restore current meeting context
+  currentMeetingId = draft.currentMeetingId ?? null;
+
+  if (document.getElementById("meetingTitle")) document.getElementById("meetingTitle").value = draft.title || "";
+  if (document.getElementById("meetingDate")) document.getElementById("meetingDate").value = draft.date || "";
+  if (document.getElementById("meetingNotes")) document.getElementById("meetingNotes").value = draft.notes || "";
+  if (document.getElementById("meetingMinutes")) document.getElementById("meetingMinutes").value = draft.minutes || "";
+
+  // restore attendance
+  if (Array.isArray(draft.attendance)) {
+    document.querySelectorAll("#attendanceList input").forEach(box => {
+      const name = box.parentElement.textContent.trim();
+      const match = draft.attendance.find(a => a.name === name);
+      if (match) box.checked = !!match.present;
+    });
+  }
+
+  // update save button label based on whether editing an existing meeting
+  const saveBtn = document.getElementById("saveBtn");
+  if (saveBtn) saveBtn.textContent = currentMeetingId ? "Update Meeting" : "Save Meeting";
+}
+
+function clearDraft() {
+  localStorage.removeItem(DRAFT_KEY);
+}
+
+function startAutoSave() {
+  // Save frequently, but lightly
+  if (autoSaveTimer) clearInterval(autoSaveTimer);
+  autoSaveTimer = setInterval(saveDraft, 2000);
+
+  // Also save on user interactions (more responsive)
+  const watchIds = ["meetingTitle", "meetingDate", "meetingNotes", "meetingMinutes"];
+  watchIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("input", saveDraft);
+  });
+
+  document.querySelectorAll("#attendanceList input").forEach(box => {
+    box.addEventListener("change", saveDraft);
+  });
+}
+
+window.addEventListener("load", () => {
+  loadDraft();
+  startAutoSave();
+});
