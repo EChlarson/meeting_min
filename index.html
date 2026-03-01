@@ -20,7 +20,7 @@
    <title>Meeting Minutes</title>
 </head>
 <body>
-
+<section id="view-meeting" class="view active">
    <h1>Meeting Minutes</h1>
 
    <!-- Recording -->
@@ -96,6 +96,38 @@
          </button>
       </div>
    </div>
+</section>
+
+<section id="view-saved" class="view">
+    <div class="card">
+      <h3>Saved Meetings</h3>
+      <div id="savedMeetingsList">No saved meetings yet.</div>
+    </div>
+</section>
+
+<section id="view-tools" class="view">
+    <div class="card">
+      <h3>Tools</h3>
+      <p>Coming soon: To-do list, templates, etc.</p>
+    </div>
+  </section>
+
+   <nav class="bottom-nav">
+      <button class="nav-btn active" data-target="view-meeting">
+         <i class="fa-solid fa-microphone"></i>
+         <span>Meeting</span>
+      </button>
+
+      <button class="nav-btn" data-target="view-saved">
+         <i class="fa-solid fa-folder-open"></i>
+         <span>Saved</span>
+      </button>
+
+      <button class="nav-btn" data-target="view-tools">
+         <i class="fa-solid fa-list-check"></i>
+         <span>Tools</span>
+      </button>
+   </nav>
    
 <script src="./record.js"></script>
 <script src="./minutes.js"></script>

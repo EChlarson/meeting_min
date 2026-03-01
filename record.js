@@ -98,3 +98,21 @@ let secondsElapsed = 0;
 
     alert("Meeting saved successfully.");
   }
+
+  document.querySelectorAll(".nav-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      // buttons
+      document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+
+      // views
+      const target = btn.dataset.target;
+      document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+      document.getElementById(target).classList.add("active");
+
+      // optional: refresh saved list when opening Saved tab
+      if (target === "view-saved") {
+        renderSavedMeetings();
+      }
+    });
+  });
