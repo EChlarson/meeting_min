@@ -35,20 +35,12 @@
    </div>
 
    <!-- Transcript -->
-   <div class="card" id="notes">
-      <h3>Meeting Transcript / Notes</h3>
-      <label for="meetingDate">Date:</label>
-      <input type="date" id="meetingDate"> <br>
-      <p>Keep notes consistent and avoid combining multiple actions or decisions on a single line.</p>
-      <ul>
-         <li>Decision: → for decisions</li>
-         <li>Action: → for action items</li>
-         <li>Follow up: → for action items</li>
-         <li>Prepare: → for action items</li>
-         <li>Send: → for action items</li>
-         <li>Summary or general notes don’t need a keyword, just write naturally.</li>
-      </ul>
-      <textarea id="transcript" placeholder="Paste transcript or notes here..."></textarea>
+   <div class="card">
+      <h3>Meeting Info</h3>
+      <input type="text" id="meetingTitle" placeholder="Meeting Title">
+      <input type="date" id="meetingDate">
+      <textarea id="meetingNotes" placeholder="Type meeting notes here..."></textarea>
+      <textarea id="meetingMinutes" placeholder="Generated minutes will appear here..."></textarea>
    </div>
 
    <!-- Generated Minutes -->
@@ -81,6 +73,11 @@
          <li><input type="checkbox"> Devin Bryson</li>
          <li><input type="checkbox"> Jared Chlarson</li>
       </ul>
+   </div>
+
+   <!-- Save -->
+   <div class="card">
+      <button class="button" onclick="saveMeeting()">Save Meeting</button>
    </div>
 
    <!-- Export -->

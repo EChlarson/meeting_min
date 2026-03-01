@@ -1,7 +1,7 @@
- let mediaRecorder;
-  let audioChunks = [];
-  let timerInterval;
-  let secondsElapsed = 0;
+let mediaRecorder;
+let audioChunks = [];
+let timerInterval;
+let secondsElapsed = 0;
 
   function startRecording() {
     navigator.mediaDevices.getUserMedia({ audio: true })
@@ -56,4 +56,45 @@
     const minutes = String(Math.floor(secondsElapsed / 60)).padStart(2, "0");
     const seconds = String(secondsElapsed % 60).padStart(2, "0");
     document.getElementById("timer").textContent = `${minutes}:${seconds}`;
-   }
+  }
+
+  function saveMeeting() {
+
+    const title = document.getElementById("meetingTitle").value;
+    const date = document.getElementById("meetingDate").value;
+    const notes = document.getElementById("meetingNotes").value;
+    const minutes = document.getElementById("meetingMinutes").value;
+
+    const attendanceCheckboxes =
+      document.querySelectorAll("#attendanceList input");
+
+    const attendance = [];
+
+    attendanceCheckboxes.forEach(box => {
+      attendance.push({
+        name: box.parentElement.textContent.trim(),
+        present: box.checked
+      });
+    });
+
+    const meeting = {
+      id: Date.now(),
+      title,
+      date,
+      notes,
+      minutes,
+      attendance
+    };
+
+    let meetings =
+      JSON.parse(localStorage.getItem("meetings")) || [];
+
+    meetings.push(meeting);
+
+    localStorage.setItem(
+      "meetings",
+      JSON.stringify(meetings)
+    );
+
+    alert("Meeting saved successfully.");
+  }
