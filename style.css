@@ -104,3 +104,25 @@ textarea {
 body{
   padding-bottom: 80px; /* prevents nav covering content */
 }
+
+/* Attendance */
+.attendance li{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  margin-bottom:10px;
+}
+
+.attendance label{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-width: 180px;
+}
+
+.attendance .email{
+  flex:1;
+  padding:8px;
+  border-radius:6px;
+  border:1px solid #ccc;
+}

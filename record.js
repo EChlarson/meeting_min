@@ -69,11 +69,12 @@ let autoSaveTimer = null;
 
     const attendanceCheckboxes = document.querySelectorAll("#attendanceList input");
     const attendance = [];
-    attendanceCheckboxes.forEach(box => {
-      attendance.push({
-        name: box.parentElement.textContent.trim(),
-        present: box.checked
-      });
+    document.querySelectorAll("#attendanceList li").forEach(li => {
+      const present = li.querySelector('input[type="checkbox"]').checked;
+      const name = li.querySelector(".name").textContent.trim();
+      const email = li.querySelector(".email").value.trim();
+
+      attendance.push({ name, email, present });
     });
 
     let meetings = getMeetings();
@@ -183,11 +184,13 @@ function openMeeting(meetingId) {
 
   // Restore attendance
   if (Array.isArray(meeting.attendance)) {
-    const boxes = document.querySelectorAll("#attendanceList input");
-    boxes.forEach(box => {
-      const name = box.parentElement.textContent.trim();
+    document.querySelectorAll("#attendanceList li").forEach(li => {
+      const name = li.querySelector(".name").textContent.trim();
       const match = meeting.attendance.find(a => a.name === name);
-      if (match) box.checked = !!match.present;
+      if (!match) return;
+
+      li.querySelector('input[type="checkbox"]').checked = !!match.present;
+      li.querySelector(".email").value = match.email || "";
     });
   }
 
@@ -248,12 +251,13 @@ function collectDraftData() {
   const minutes = document.getElementById("meetingMinutes")?.value || "";
 
   const attendance = [];
-  document.querySelectorAll("#attendanceList input").forEach(box => {
-    attendance.push({
-      name: box.parentElement.textContent.trim(),
-      present: box.checked
+    document.querySelectorAll("#attendanceList li").forEach(li => {
+      const present = li.querySelector('input[type="checkbox"]').checked;
+      const name = li.querySelector(".name").textContent.trim();
+      const email = li.querySelector(".email").value.trim();
+
+      attendance.push({ name, email, present });
     });
-  });
 
   return {
     currentMeetingId, // so drafts stay tied to an opened meeting
@@ -292,10 +296,13 @@ function loadDraft() {
 
   // restore attendance
   if (Array.isArray(draft.attendance)) {
-    document.querySelectorAll("#attendanceList input").forEach(box => {
-      const name = box.parentElement.textContent.trim();
+    document.querySelectorAll("#attendanceList li").forEach(li => {
+      const name = li.querySelector(".name").textContent.trim();
       const match = draft.attendance.find(a => a.name === name);
-      if (match) box.checked = !!match.present;
+      if (!match) return;
+
+      li.querySelector('input[type="checkbox"]').checked = !!match.present;
+      li.querySelector(".email").value = match.email || "";
     });
   }
 
@@ -329,3 +336,32 @@ window.addEventListener("load", () => {
   loadDraft();
   startAutoSave();
 });
+
+//Email 
+document.getElementById("emailBtn").addEventListener("click", () => {
+  const title = document.getElementById("meetingTitle")?.value.trim() || "Meeting";
+  const date = document.getElementById("meetingDate")?.value || new Date().toLocaleDateString();
+
+  const minutesText = getFormattedMinutes(); // your existing formatter
+
+  // recipients = checked attendees with valid-looking emails
+  const recipients = [];
+  document.querySelectorAll("#attendanceList li").forEach(li => {
+    const present = li.querySelector('input[type="checkbox"]').checked;
+    const email = li.querySelector(".email").value.trim();
+
+    if (present && email.includes("@")) recipients.push(email);
+  });
+
+  if (!recipients.length) {
+    alert("No attendee emails selected. Check attendance and add emails.");
+    return;
+  }
+
+  const subject = encodeURIComponent(`Meeting Minutes - ${title} (${date})`);
+  const body = encodeURIComponent(minutesText);
+
+  // mailto supports comma-separated recipients
+  window.location.href = `mailto:${recipients.join(",")}?subject=${subject}&body=${body}`;
+});
+
