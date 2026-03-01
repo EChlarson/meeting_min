@@ -99,6 +99,7 @@ let secondsElapsed = 0;
     alert("Meeting saved successfully.");
   }
 
+//Navigation
   document.querySelectorAll(".nav-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       // buttons
@@ -116,3 +117,100 @@ let secondsElapsed = 0;
       }
     });
   });
+
+//Save Meeting
+function getMeetings() {
+  return JSON.parse(localStorage.getItem("meetings")) || [];
+}
+
+function setMeetings(meetings) {
+  localStorage.setItem("meetings", JSON.stringify(meetings));
+}
+
+function renderSavedMeetings() {
+  const list = document.getElementById("savedMeetingsList");
+  const meetings = getMeetings();
+
+  if (!meetings.length) {
+    list.innerHTML = "No saved meetings yet.";
+    return;
+  }
+
+  // newest first
+  const sorted = [...meetings].sort((a, b) => b.id - a.id);
+
+  list.innerHTML = sorted.map(m => {
+    const title = m.title?.trim() || "Untitled Meeting";
+    const date = m.date || "No date";
+    return `
+      <div class="saved-item" style="display:flex; justify-content:space-between; gap:12px; align-items:center; padding:10px 0; border-bottom:1px solid #eee;">
+        <div>
+          <div style="font-weight:600;">${escapeHtml(title)}</div>
+          <div style="font-size:12px; color:#666;">${escapeHtml(date)}</div>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button class="button" onclick="openMeeting(${m.id})">Open</button>
+          <button class="button" onclick="deleteMeeting(${m.id})">Delete</button>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+function openMeeting(meetingId) {
+  const meetings = getMeetings();
+  const meeting = meetings.find(m => m.id === meetingId);
+  if (!meeting) return;
+
+  // Fill inputs (adjust IDs if yours differ)
+  const titleEl = document.getElementById("meetingTitle");
+  const dateEl = document.getElementById("meetingDate");
+  const notesEl = document.getElementById("meetingNotes");
+
+  if (titleEl) titleEl.value = meeting.title || "";
+  if (dateEl) dateEl.value = meeting.date || "";
+  if (notesEl) notesEl.value = meeting.notes || "";
+
+  // If you store minutes output in a textarea, fill it
+  const minutesTextarea = document.getElementById("meetingMinutes");
+  if (minutesTextarea) minutesTextarea.value = meeting.minutes || "";
+
+  // Restore attendance checkboxes
+  if (Array.isArray(meeting.attendance)) {
+    const boxes = document.querySelectorAll("#attendanceList input");
+    boxes.forEach(box => {
+      const name = box.parentElement.textContent.trim();
+      const match = meeting.attendance.find(a => a.name === name);
+      if (match) box.checked = !!match.present;
+    });
+  }
+
+  // Switch to Meeting tab
+  switchView("view-meeting");
+}
+
+function deleteMeeting(meetingId) {
+  const meetings = getMeetings();
+  const filtered = meetings.filter(m => m.id !== meetingId);
+  setMeetings(filtered);
+  renderSavedMeetings();
+}
+
+function switchView(viewId) {
+  document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+  document.getElementById(viewId).classList.add("active");
+
+  document.querySelectorAll(".nav-btn").forEach(btn => btn.classList.remove("active"));
+  const btn = document.querySelector(`.nav-btn[data-target="${viewId}"]`);
+  if (btn) btn.classList.add("active");
+}
+
+// tiny helper so titles can’t break your HTML
+function escapeHtml(str) {
+  return String(str)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
