@@ -2,6 +2,7 @@ let mediaRecorder;
 let audioChunks = [];
 let timerInterval;
 let secondsElapsed = 0;
+let currentMeetingId = null;
 
   function startRecording() {
     navigator.mediaDevices.getUserMedia({ audio: true })
@@ -59,17 +60,13 @@ let secondsElapsed = 0;
   }
 
   function saveMeeting() {
-
-    const title = document.getElementById("meetingTitle").value;
+    const title = document.getElementById("meetingTitle").value.trim();
     const date = document.getElementById("meetingDate").value;
     const notes = document.getElementById("meetingNotes").value;
-    const minutes = document.getElementById("meetingMinutes").value;
+    const minutes = document.getElementById("meetingMinutes")?.value || "";
 
-    const attendanceCheckboxes =
-      document.querySelectorAll("#attendanceList input");
-
+    const attendanceCheckboxes = document.querySelectorAll("#attendanceList input");
     const attendance = [];
-
     attendanceCheckboxes.forEach(box => {
       attendance.push({
         name: box.parentElement.textContent.trim(),
@@ -77,8 +74,11 @@ let secondsElapsed = 0;
       });
     });
 
+    let meetings = getMeetings();
+
+    // Build meeting object
     const meeting = {
-      id: Date.now(),
+      id: currentMeetingId ?? Date.now(),
       title,
       date,
       notes,
@@ -86,17 +86,22 @@ let secondsElapsed = 0;
       attendance
     };
 
-    let meetings =
-      JSON.parse(localStorage.getItem("meetings")) || [];
+    if (currentMeetingId === null) {
+      // CREATE
+      meetings.push(meeting);
+      alert("Meeting saved.");
+    } else {
+      // UPDATE
+      meetings = meetings.map(m => (m.id === currentMeetingId ? meeting : m));
+      alert("Meeting updated.");
+    }
 
-    meetings.push(meeting);
+    setMeetings(meetings);
 
-    localStorage.setItem(
-      "meetings",
-      JSON.stringify(meetings)
-    );
-
-    alert("Meeting saved successfully.");
+    // If you're on Saved tab, refresh list
+    if (document.getElementById("view-saved")?.classList.contains("active")) {
+      renderSavedMeetings();
+    }
   }
 
 //Navigation
@@ -162,20 +167,16 @@ function openMeeting(meetingId) {
   const meeting = meetings.find(m => m.id === meetingId);
   if (!meeting) return;
 
-  // Fill inputs (adjust IDs if yours differ)
-  const titleEl = document.getElementById("meetingTitle");
-  const dateEl = document.getElementById("meetingDate");
-  const notesEl = document.getElementById("meetingNotes");
+  currentMeetingId = meeting.id;
 
-  if (titleEl) titleEl.value = meeting.title || "";
-  if (dateEl) dateEl.value = meeting.date || "";
-  if (notesEl) notesEl.value = meeting.notes || "";
+  document.getElementById("meetingTitle").value = meeting.title || "";
+  document.getElementById("meetingDate").value = meeting.date || "";
+  document.getElementById("meetingNotes").value = meeting.notes || "";
 
-  // If you store minutes output in a textarea, fill it
-  const minutesTextarea = document.getElementById("meetingMinutes");
-  if (minutesTextarea) minutesTextarea.value = meeting.minutes || "";
+  const minutesEl = document.getElementById("meetingMinutes");
+  if (minutesEl) minutesEl.value = meeting.minutes || "";
 
-  // Restore attendance checkboxes
+  // Restore attendance
   if (Array.isArray(meeting.attendance)) {
     const boxes = document.querySelectorAll("#attendanceList input");
     boxes.forEach(box => {
@@ -185,7 +186,10 @@ function openMeeting(meetingId) {
     });
   }
 
-  // Switch to Meeting tab
+  // Change button label
+  const saveBtn = document.getElementById("saveBtn");
+  if (saveBtn) saveBtn.textContent = "Update Meeting";
+
   switchView("view-meeting");
 }
 
@@ -213,4 +217,20 @@ function escapeHtml(str) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function newMeeting() {
+  currentMeetingId = null;
+
+  document.getElementById("meetingTitle").value = "";
+  document.getElementById("meetingDate").value = "";
+  document.getElementById("meetingNotes").value = "";
+
+  const minutesEl = document.getElementById("meetingMinutes");
+  if (minutesEl) minutesEl.value = "";
+
+  document.querySelectorAll("#attendanceList input").forEach(box => (box.checked = false));
+
+  const saveBtn = document.getElementById("saveBtn");
+  if (saveBtn) saveBtn.textContent = "Save Meeting";
 }
