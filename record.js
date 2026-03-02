@@ -6,6 +6,7 @@ let currentMeetingId = null;
 const DRAFT_KEY = "meetingDraft";
 let autoSaveTimer = null;
 const ATTENDEES_KEY = "attendees";
+const AI_ENDPOINT = "https://meeting-minutes-ai.chl20001.workers.dev";
 
 // Attendance 
 function getAttendees() {
@@ -524,3 +525,45 @@ function escapeHtml(str) {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 }
+
+// AI MIN
+document.getElementById("aiMinutesBtn")?.addEventListener("click", async () => {
+  const notes = document.getElementById("meetingNotes")?.value || "";
+  const title = document.getElementById("meetingTitle")?.value || "";
+  const date = document.getElementById("meetingDate")?.value || "";
+
+  if (!notes.trim()) {
+    alert("Add notes first.");
+    return;
+  }
+
+  // present attendee names
+  const attendees = getAttendees();
+  const presentSelections = getCurrentAttendanceSelection();
+  const presentMap = new Map(presentSelections.map(a => [a.attendeeId, a.present]));
+  const presentNames = attendees.filter(a => presentMap.get(a.id)).map(a => a.name);
+
+  const btn = document.getElementById("aiMinutesBtn");
+  const oldText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Generating...";
+
+  try {
+    const res = await fetch(AI_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notes, title, date, attendees: presentNames })
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error || "AI request failed");
+
+    document.getElementById("meetingMinutes").value = data.minutes || "";
+    saveDraft();
+  } catch (e) {
+    alert("AI failed: " + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = oldText;
+  }
+});
