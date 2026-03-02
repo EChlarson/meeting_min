@@ -1,4 +1,4 @@
-const CACHE_NAME = "meeting-min-v4"; // bump this number whenever you deploy
+const CACHE_NAME = "meeting-min-v5"; // bump this number whenever you deploy
 
 self.addEventListener("install", (event) => {
   self.skipWaiting(); // activate new SW immediately
@@ -16,39 +16,19 @@ self.addEventListener("fetch", (event) => {
   const req = event.request;
   const url = new URL(req.url);
 
-  // BYPASS non-GET (POST/OPTIONS) requests
+  // Bypass non-GET (POST/OPTIONS) requests
   if (req.method !== "GET") {
     event.respondWith(fetch(req));
     return;
   }
 
-  // BYPASS cross-origin requests (like your Cloudflare AI Worker)
+  // Bypass cross-origin requests (Cloudflare Worker is cross-origin)
   if (url.origin !== self.location.origin) {
     event.respondWith(fetch(req));
     return;
   }
 
-  // --- Your existing caching logic below this line ---
-  const isCoreAsset =
-    url.pathname.endsWith("/") ||
-    url.pathname.endsWith("/index.html") ||
-    url.pathname.endsWith("/record.js") ||
-    url.pathname.endsWith("/export.js") ||
-    url.pathname.endsWith("/style.css");
-
-  if (isCoreAsset) {
-    event.respondWith(
-      fetch(req)
-        .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
-          return res;
-        })
-        .catch(() => caches.match(req))
-    );
-    return;
-  }
-
+  // Your normal caching logic for same-origin GETs can stay below...
   event.respondWith(
     caches.match(req).then((cached) => cached || fetch(req))
   );
