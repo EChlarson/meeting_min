@@ -1,4 +1,4 @@
-const CACHE_NAME = "meeting-min-v3"; // bump this number whenever you deploy
+const CACHE_NAME = "meeting-min-v4"; // bump this number whenever you deploy
 
 self.addEventListener("install", (event) => {
   self.skipWaiting(); // activate new SW immediately
@@ -16,11 +16,24 @@ self.addEventListener("fetch", (event) => {
   const req = event.request;
   const url = new URL(req.url);
 
-  // Always go to network first for these (so you get newest code on refresh)
+  // BYPASS non-GET (POST/OPTIONS) requests
+  if (req.method !== "GET") {
+    event.respondWith(fetch(req));
+    return;
+  }
+
+  // BYPASS cross-origin requests (like your Cloudflare AI Worker)
+  if (url.origin !== self.location.origin) {
+    event.respondWith(fetch(req));
+    return;
+  }
+
+  // --- Your existing caching logic below this line ---
   const isCoreAsset =
     url.pathname.endsWith("/") ||
     url.pathname.endsWith("/index.html") ||
     url.pathname.endsWith("/record.js") ||
+    url.pathname.endsWith("/export.js") ||
     url.pathname.endsWith("/style.css");
 
   if (isCoreAsset) {
@@ -36,7 +49,6 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // For everything else, cache-first is fine
   event.respondWith(
     caches.match(req).then((cached) => cached || fetch(req))
   );
