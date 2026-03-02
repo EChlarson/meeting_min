@@ -34,26 +34,23 @@ document.getElementById("emailBtn").addEventListener("click", () => {
 
   const minutesText = getFormattedMinutes();
 
-  // get attendees + present selections
   const attendees = getAttendees();
   const presentSelections = getCurrentAttendanceSelection();
   const presentMap = new Map(presentSelections.map(a => [a.attendeeId, a.present]));
 
-  // recipients = present attendees with valid-ish emails
   const recipients = attendees
     .filter(a => presentMap.get(a.id))
     .map(a => (a.email || "").trim())
     .filter(email => email.includes("@"));
 
   if (!recipients.length) {
-    alert("No attendee emails selected. Mark attendees present and add their emails in Attendees.");
+    alert("No attendee emails selected. Mark attendees present and add emails in Attendees.");
     return;
   }
 
   const subject = encodeURIComponent(`Meeting Minutes - ${title} (${date})`);
   const body = encodeURIComponent(minutesText);
 
-  // mailto with recipients included
   window.location.href = `mailto:${recipients.join(",")}?subject=${subject}&body=${body}`;
 });
 
