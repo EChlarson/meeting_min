@@ -1,6 +1,6 @@
 let mediaRecorder;
 let audioChunks = [];
-let timerInterval;
+let recordingStream = null;
 let secondsElapsed = 0;
 let currentMeetingId = null;
 const DRAFT_KEY = "meetingDraft";
@@ -111,41 +111,82 @@ function getCurrentAttendanceSelection() {
   return selections;
 }
 
-// Recording
-  function startRecording() {
-    navigator.mediaDevices.getUserMedia({ audio: true })
-      .then(stream => {
-        mediaRecorder = new MediaRecorder(stream);
-        audioChunks = [];
+// Pick the best mime type the browser supports
+function pickSupportedMimeType() {
+  if (!window.MediaRecorder) return null;
 
-        mediaRecorder.start();
-        startTimer();
+  const types = [
+    "audio/mp4",               // often best for iOS
+    "audio/webm;codecs=opus",  // common on Chrome/desktop
+    "audio/webm"
+  ];
 
-        mediaRecorder.ondataavailable = event => {
-          audioChunks.push(event.data);
-        };
-      })
-      .catch(error => {
-        alert("Microphone access denied.");
-        console.error(error);
-      });
+  for (const t of types) {
+    if (MediaRecorder.isTypeSupported(t)) return t;
   }
+  return ""; // browser default
+}
 
-  function stopRecording() {
-    if (!mediaRecorder) return;
+// Recording
+async function startRecording() {
+  try {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      alert("This browser does not support recording.");
+      return;
+    }
+    if (!window.MediaRecorder) {
+      alert("Recording is not supported on this iPhone/iOS version.");
+      return;
+    }
 
-    mediaRecorder.stop();
+    const mimeType = pickSupportedMimeType();
+
+    recordingStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audioChunks = [];
+
+    const options = mimeType ? { mimeType } : undefined;
+    mediaRecorder = new MediaRecorder(recordingStream, options);
+
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data && event.data.size > 0) audioChunks.push(event.data);
+    };
+
+    mediaRecorder.onerror = (e) => {
+      console.error("Recorder error:", e);
+      alert("Recorder error: " + (e?.error?.message || "Unknown error"));
+    };
+
+    mediaRecorder.start();
+    startTimer();
+  } catch (error) {
+    console.error(error);
+    alert("Mic access failed: " + (error?.message || error));
+  }
+}
+
+function stopRecording() {
+  if (!mediaRecorder) return;
+
+  mediaRecorder.onstop = () => {
     stopTimer();
 
-    mediaRecorder.onstop = () => {
-      const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
-      const audioUrl = URL.createObjectURL(audioBlob);
+    const mimeType = mediaRecorder.mimeType || "audio/mp4";
+    const audioBlob = new Blob(audioChunks, { type: mimeType });
+    const audioUrl = URL.createObjectURL(audioBlob);
 
-      const audio = document.getElementById("audioPlayback");
-      audio.src = audioUrl;
-      audio.style.display = "block";
-    };
-  }
+    const audio = document.getElementById("audioPlayback");
+    audio.src = audioUrl;
+    audio.style.display = "block";
+
+    // ✅ IMPORTANT for iPhone: release the microphone
+    if (recordingStream) {
+      recordingStream.getTracks().forEach(t => t.stop());
+      recordingStream = null;
+    }
+  };
+
+  mediaRecorder.stop();
+}
 
   function startTimer() {
     secondsElapsed = 0;
