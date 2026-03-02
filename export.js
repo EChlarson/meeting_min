@@ -1,65 +1,59 @@
 //Create One Clean Block of Text to Export
 function getFormattedMinutes() {
+  const title = document.getElementById("meetingTitle")?.value.trim() || "Meeting";
+  const date = document.getElementById("meetingDate")?.value || new Date().toLocaleDateString();
+  const minutes = document.getElementById("meetingMinutes")?.value || "";
 
-   //Date
-   const dateInput = document.getElementById("meetingDate")?.value;
-   const date = dateInput || new Date().toLocaleDateString();
+  const attendees = getAttendees();
+  const presentSelections = getCurrentAttendanceSelection();
+  const presentMap = new Map(presentSelections.map(a => [a.attendeeId, a.present]));
 
-   //Notes / Minutes
-   const summary = document.getElementById("summary")?.textContent || "";
-   const decisions = document.getElementById("decisions")?.innerText || "";
-   const actions = document.getElementById("minutesActions")?.innerText || "";
-   const nextSteps = document.getElementById("nextSteps")?.textContent || "";
-
-   //Attendance
-   const attendanceElems = document.querySelectorAll("#attendanceList li input:checked");
-   const attendanceNames = Array.from(attendanceElems).map(el => el.parentElement.textContent.trim()).join("\n");
+  const presentNames = attendees
+    .filter(a => presentMap.get(a.id))
+    .map(a => a.name)
+    .join("\n");
 
   return `
 MEETING MINUTES
-DATE: ${date}
+
+Title: ${title}
+Date: ${date}
 
 ATTENDANCE
-${attendanceNames || "No attendees selected"}
+${presentNames || "None recorded"}
 
-SUMMARY
-${summary}
+----------------------------------------
 
-DECISIONS
-${decisions}
-
-ACTION ITEMS
-${actions}
-
-NEXT STEPS
-${nextSteps}
+${minutes}
 `.trim();
 }
 
-//Copy to clipboard
-document.getElementById("copyBtn").addEventListener("click", () => {
-  const text = getFormattedMinutes();
-  navigator.clipboard.writeText(text);
-  alert("Minutes copied to clipboard");
-});
-
-//Download as a Text File
-document.getElementById("downloadBtn").addEventListener("click", () => {
-  const text = getFormattedMinutes();
-  const blob = new Blob([text], { type: "text/plain" });
-
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = "meeting-minutes.txt";
-  link.click();
-
-  URL.revokeObjectURL(link.href);
-});
-
-//Email Minutes
 document.getElementById("emailBtn").addEventListener("click", () => {
-  const subject = encodeURIComponent("Meeting Minutes");
-  const body = encodeURIComponent(getFormattedMinutes());
+  const title = document.getElementById("meetingTitle")?.value.trim() || "Meeting";
+  const date = document.getElementById("meetingDate")?.value || new Date().toLocaleDateString();
 
-  window.location.href = `mailto:?subject=${subject}&body=${body}`;
+  const minutesText = getFormattedMinutes();
+
+  // get attendees + present selections
+  const attendees = getAttendees();
+  const presentSelections = getCurrentAttendanceSelection();
+  const presentMap = new Map(presentSelections.map(a => [a.attendeeId, a.present]));
+
+  // recipients = present attendees with valid-ish emails
+  const recipients = attendees
+    .filter(a => presentMap.get(a.id))
+    .map(a => (a.email || "").trim())
+    .filter(email => email.includes("@"));
+
+  if (!recipients.length) {
+    alert("No attendee emails selected. Mark attendees present and add their emails in Attendees.");
+    return;
+  }
+
+  const subject = encodeURIComponent(`Meeting Minutes - ${title} (${date})`);
+  const body = encodeURIComponent(minutesText);
+
+  // mailto with recipients included
+  window.location.href = `mailto:${recipients.join(",")}?subject=${subject}&body=${body}`;
 });
+
