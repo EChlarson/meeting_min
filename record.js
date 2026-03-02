@@ -5,7 +5,113 @@ let secondsElapsed = 0;
 let currentMeetingId = null;
 const DRAFT_KEY = "meetingDraft";
 let autoSaveTimer = null;
+const ATTENDEES_KEY = "attendees";
 
+// Attendance 
+function getAttendees() {
+  return JSON.parse(localStorage.getItem(ATTENDEES_KEY)) || [];
+}
+
+function setAttendees(attendees) {
+  localStorage.setItem(ATTENDEES_KEY, JSON.stringify(attendees));
+}
+
+function renderAttendanceList(selectedAttendance = []) {
+  const ul = document.getElementById("attendanceList");
+  if (!ul) return;
+
+  const attendees = getAttendees();
+  if (!attendees.length) {
+    ul.innerHTML = `<li style="color:#666;">No attendees yet. Add them in the Attendees tab.</li>`;
+    return;
+  }
+
+  // selectedAttendance is an array of { attendeeId, present }
+  const presentMap = new Map(
+    selectedAttendance.map(a => [a.attendeeId, !!a.present])
+  );
+
+  ul.innerHTML = attendees.map(a => {
+    const checked = presentMap.get(a.id) ? "checked" : "";
+    return `
+      <li data-attendee-id="${a.id}">
+        <label>
+          <input type="checkbox" ${checked}>
+          <span class="name">${escapeHtml(a.name)}</span>
+        </label>
+        <input class="email" type="email" value="${escapeHtml(a.email || "")}" disabled>
+      </li>
+    `;
+  }).join("");
+}
+
+function renderAttendeesManager() {
+  const container = document.getElementById("attendeesList");
+  if (!container) return;
+
+  const attendees = getAttendees();
+  if (!attendees.length) {
+    container.innerHTML = `<p style="color:#666;">No attendees added yet.</p>`;
+    return;
+  }
+
+  container.innerHTML = attendees.map(a => `
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid #eee;">
+      <div>
+        <div style="font-weight:600;">${escapeHtml(a.name)}</div>
+        <div style="font-size:12px; color:#666;">${escapeHtml(a.email || "")}</div>
+      </div>
+      <button class="button" onclick="deleteAttendee(${a.id})">Delete</button>
+    </div>
+  `).join("");
+}
+
+function addAttendee() {
+  const nameEl = document.getElementById("newAttendeeName");
+  const emailEl = document.getElementById("newAttendeeEmail");
+
+  const name = nameEl.value.trim();
+  const email = emailEl.value.trim();
+
+  if (!name) {
+    alert("Please enter a name.");
+    return;
+  }
+
+  const attendees = getAttendees();
+  attendees.push({ id: Date.now(), name, email });
+
+  setAttendees(attendees);
+
+  nameEl.value = "";
+  emailEl.value = "";
+
+  renderAttendeesManager();
+  renderAttendanceList(getCurrentAttendanceSelection()); // keep meeting page in sync
+  saveDraft(); // so refresh keeps everything
+}
+
+function deleteAttendee(attendeeId) {
+  const attendees = getAttendees().filter(a => a.id !== attendeeId);
+  setAttendees(attendees);
+
+  renderAttendeesManager();
+  renderAttendanceList(getCurrentAttendanceSelection());
+  saveDraft();
+}
+
+function getCurrentAttendanceSelection() {
+  // returns [{ attendeeId, present }]
+  const selections = [];
+  document.querySelectorAll("#attendanceList li").forEach(li => {
+    const attendeeId = Number(li.dataset.attendeeId);
+    const present = li.querySelector('input[type="checkbox"]').checked;
+    selections.push({ attendeeId, present });
+  });
+  return selections;
+}
+
+// Recording
   function startRecording() {
     navigator.mediaDevices.getUserMedia({ audio: true })
       .then(stream => {
@@ -67,8 +173,7 @@ let autoSaveTimer = null;
     const notes = document.getElementById("meetingNotes").value;
     const minutes = document.getElementById("meetingMinutes")?.value || "";
 
-    const attendanceCheckboxes = document.querySelectorAll("#attendanceList input");
-    const attendance = [];
+    const attendance = getCurrentAttendanceSelection();
     document.querySelectorAll("#attendanceList li").forEach(li => {
       const present = li.querySelector('input[type="checkbox"]').checked;
       const name = li.querySelector(".name").textContent.trim();
@@ -250,7 +355,7 @@ function collectDraftData() {
   const notes = document.getElementById("meetingNotes")?.value || "";
   const minutes = document.getElementById("meetingMinutes")?.value || "";
 
-  const attendance = [];
+  const attendance = getCurrentAttendanceSelection();
     document.querySelectorAll("#attendanceList li").forEach(li => {
       const present = li.querySelector('input[type="checkbox"]').checked;
       const name = li.querySelector(".name").textContent.trim();
@@ -295,16 +400,7 @@ function loadDraft() {
   if (document.getElementById("meetingMinutes")) document.getElementById("meetingMinutes").value = draft.minutes || "";
 
   // restore attendance
-  if (Array.isArray(draft.attendance)) {
-    document.querySelectorAll("#attendanceList li").forEach(li => {
-      const name = li.querySelector(".name").textContent.trim();
-      const match = draft.attendance.find(a => a.name === name);
-      if (!match) return;
-
-      li.querySelector('input[type="checkbox"]').checked = !!match.present;
-      li.querySelector(".email").value = match.email || "";
-    });
-  }
+  renderAttendanceList(draft.attendance || []);
 
   // update save button label based on whether editing an existing meeting
   const saveBtn = document.getElementById("saveBtn");
@@ -342,26 +438,48 @@ document.getElementById("emailBtn").addEventListener("click", () => {
   const title = document.getElementById("meetingTitle")?.value.trim() || "Meeting";
   const date = document.getElementById("meetingDate")?.value || new Date().toLocaleDateString();
 
-  const minutesText = getFormattedMinutes(); // your existing formatter
+  const minutesText = getFormattedMinutes();
 
-  // recipients = checked attendees with valid-looking emails
-  const recipients = [];
-  document.querySelectorAll("#attendanceList li").forEach(li => {
-    const present = li.querySelector('input[type="checkbox"]').checked;
-    const email = li.querySelector(".email").value.trim();
+  const attendees = getAttendees();
+  const presentSelections = getCurrentAttendanceSelection();
+  const presentMap = new Map(presentSelections.map(a => [a.attendeeId, a.present]));
 
-    if (present && email.includes("@")) recipients.push(email);
-  });
+  const recipients = attendees
+    .filter(a => presentMap.get(a.id))
+    .map(a => (a.email || "").trim())
+    .filter(email => email.includes("@"));
 
   if (!recipients.length) {
-    alert("No attendee emails selected. Check attendance and add emails.");
+    alert("No attendee emails selected. Mark attendees present and add their emails in Attendees.");
     return;
   }
 
   const subject = encodeURIComponent(`Meeting Minutes - ${title} (${date})`);
   const body = encodeURIComponent(minutesText);
 
-  // mailto supports comma-separated recipients
   window.location.href = `mailto:${recipients.join(",")}?subject=${subject}&body=${body}`;
 });
 
+// Add button on Attendees Tab
+window.addEventListener("load", () => {
+  loadDraft();
+  startAutoSave();
+
+  // Attendees page
+  const addBtn = document.getElementById("addAttendeeBtn");
+  if (addBtn) addBtn.addEventListener("click", addAttendee);
+
+  // Initial renders
+  renderAttendeesManager();
+  renderAttendanceList(getCurrentAttendanceSelection());
+});
+
+// Helper?
+function escapeHtml(str) {
+  return String(str)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
