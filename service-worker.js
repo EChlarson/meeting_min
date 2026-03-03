@@ -1,5 +1,18 @@
 const CACHE_NAME = "meeting-min-v5"; // bump this number whenever you deploy
 
+self.addEventListener("fetch", (event) => {
+  const req = event.request;
+  const url = new URL(req.url);
+
+  // 1) Never touch other domains (like your Cloudflare Worker)
+  if (url.origin !== self.location.origin) return;
+
+  // 2) Never touch non-GET (POST/PUT/etc)
+  if (req.method !== "GET") return;
+
+  // ... your existing caching logic for same-origin GETs only ...
+});
+
 self.addEventListener("install", (event) => {
   self.skipWaiting(); // activate new SW immediately
 });
