@@ -184,6 +184,32 @@ function stopRecording() {
       recordingStream.getTracks().forEach(t => t.stop());
       recordingStream = null;
     }
+
+    try {
+      const notesBox = document.getElementById("meetingNotes");
+
+      // Optional: show a little status while transcribing
+      const transcribeBtn = document.getElementById("transcribeBtn"); // only if you have one
+      const oldBtnText = transcribeBtn?.textContent;
+      if (transcribeBtn) {
+        transcribeBtn.disabled = true;
+        transcribeBtn.textContent = "Transcribing...";
+      }
+
+  const transcript = await transcribeAudioBlob(audioBlob);
+
+  // Append transcript so you don't overwrite anything typed
+  notesBox.value = (notesBox.value ? notesBox.value + "\n\n" : "") + transcript;
+
+  saveDraft(); // keep your existing autosave behavior
+
+  if (transcribeBtn) {
+    transcribeBtn.disabled = false;
+    transcribeBtn.textContent = oldBtnText || "Transcribe";
+  }
+} catch (e) {
+  alert("Transcription failed: " + e.message);
+}
   };
 
   mediaRecorder.stop();
@@ -207,6 +233,31 @@ function stopRecording() {
     const minutes = String(Math.floor(secondsElapsed / 60)).padStart(2, "0");
     const seconds = String(secondsElapsed % 60).padStart(2, "0");
     document.getElementById("timer").textContent = `${minutes}:${seconds}`;
+  }
+
+  async function transcribeAudioBlob(audioBlob) {
+    const form = new FormData();
+
+    // filename + mime type helps the transcription endpoint
+    const filename = audioBlob.type?.includes("mp4") || audioBlob.type?.includes("m4a")
+      ? "meeting-audio.m4a"
+      : "meeting-audio.webm";
+
+    const file = new File([audioBlob], filename, { type: audioBlob.type || "audio/webm" });
+    form.append("file", file);
+
+    const res = await fetch("https://meeting-minutes-ai.chl20001.workers.dev/transcribe", {
+      method: "POST",
+      body: form,
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      throw new Error(data?.message || data?.error || `Transcription failed (status ${res.status})`);
+    }
+
+    return data.text || "";
   }
 
   function saveMeeting() {
