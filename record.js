@@ -538,32 +538,53 @@ document.getElementById("aiMinutesBtn")?.addEventListener("click", async () => {
   }
 
   // present attendee names
-  const attendees = getAttendees();
-  const presentSelections = getCurrentAttendanceSelection();
-  const presentMap = new Map(presentSelections.map(a => [a.attendeeId, a.present]));
-  const presentNames = attendees.filter(a => presentMap.get(a.id)).map(a => a.name);
+    const attendees = getAttendees();
+    const presentSelections = getCurrentAttendanceSelection();
+    const presentMap = new Map(presentSelections.map(a => [a.attendeeId, a.present]));
+    const presentNames = attendees.filter(a => presentMap.get(a.id)).map(a => a.name);
 
-  const btn = document.getElementById("aiMinutesBtn");
-  const oldText = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = "Generating...";
+    const btn = document.getElementById("aiMinutesBtn");
+    const oldText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Generating...";
 
-  try {
-    const res = await fetch(AI_ENDPOINT, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ notes, title, date, attendees: presentNames })
-    });
+    // NEW: timeout protection
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 45000);
 
-    const data = await res.json();
-    if (!res.ok) throw new Error(data?.error || "AI request failed");
+    try {
+      const res = await fetch(AI_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notes, title, date, attendees: presentNames }),
+        signal: controller.signal, // NEW
+      });
 
-    document.getElementById("meetingMinutes").value = data.minutes || "";
-    saveDraft();
-  } catch (e) {
-    alert("AI failed: " + e.message);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = oldText;
-  }
+      // NEW: don’t crash if response isn’t JSON
+      const data = await res.json().catch(() => ({}));
+
+      // NEW: better error messages (supports {message} or {error})
+      if (!res.ok) {
+        const msg = data?.message || data?.error || `AI request failed (status ${res.status})`;
+        throw new Error(msg);
+      }
+
+      // NEW: validate minutes
+      const minutes = data.minutes || "";
+      if (!minutes) throw new Error("AI returned no minutes.");
+
+      document.getElementById("meetingMinutes").value = minutes;
+      saveDraft();
+    } catch (e) {
+      const msg =
+        e.name === "AbortError"
+          ? "AI request timed out. Try again."
+          : e.message;
+
+      alert("AI failed: " + msg);
+    } finally {
+      clearTimeout(timeoutId); // NEW
+      btn.disabled = false;
+      btn.textContent = oldText;
+    }
 });
