@@ -25,14 +25,17 @@
 
       <!-- Recording -->
       <div class="card" id="recording">
-         <button class="button record" onclick="startRecording()">
+         <button class="button record" id="startBtn">
             <i class="fa-solid fa-play"></i>
-         </button>
-         <button class="button stop" onclick="stopRecording()">
+            </button>
+            <button class="button stop" id="stopBtn">
             <i class="fa-solid fa-stop"></i>
          </button>
          <div id="timer" style="font-size: 20px; margin-bottom: 12px;">00:00</div>
          <audio id="audioPlayback" controls style="margin-top: 12px; width: 100%; display: none;"></audio>
+         <button class="button" id="transcribeBtn" style="margin-top:10px;">
+            Transcribe Recording
+         </button>
       </div>
 
       <!-- Transcript -->
@@ -125,7 +128,7 @@
    </nav>
    
    <script src="./record.js?v=3"></script>
-   <script src="./export.js"></script>
+   <script src="./export.js?v=3"></script>
    <script>
       if ("serviceWorker" in navigator) {
          navigator.serviceWorker.register("service-worker.js");

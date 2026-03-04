@@ -1,14 +1,36 @@
+/***********************
+ * GLOBAL STATE / CONFIG
+ ***********************/
 let mediaRecorder;
 let audioChunks = [];
 let recordingStream = null;
+
 let secondsElapsed = 0;
+let timerInterval = null;
+
 let currentMeetingId = null;
+
 const DRAFT_KEY = "meetingDraft";
-let autoSaveTimer = null;
 const ATTENDEES_KEY = "attendees";
 const AI_ENDPOINT = "https://meeting-minutes-ai.chl20001.workers.dev";
 
-// Attendance 
+let autoSaveTimer = null;
+
+/***********************
+ * HTML SAFETY HELPERS
+ ***********************/
+function escapeHtml(str) {
+  return String(str)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+/***********************
+ * ATTENDEES (STORED IN LOCALSTORAGE)
+ ***********************/
 function getAttendees() {
   return JSON.parse(localStorage.getItem(ATTENDEES_KEY)) || [];
 }
@@ -17,6 +39,10 @@ function setAttendees(attendees) {
   localStorage.setItem(ATTENDEES_KEY, JSON.stringify(attendees));
 }
 
+/***********************
+ * ATTENDANCE UI (MEETING TAB)
+ * - Shows checkboxes for "present"
+ ***********************/
 function renderAttendanceList(selectedAttendance = []) {
   const ul = document.getElementById("attendanceList");
   if (!ul) return;
@@ -27,7 +53,7 @@ function renderAttendanceList(selectedAttendance = []) {
     return;
   }
 
-  // selectedAttendance is an array of { attendeeId, present }
+  // selectedAttendance: [{ attendeeId, present }]
   const presentMap = new Map(
     selectedAttendance.map(a => [a.attendeeId, !!a.present])
   );
@@ -46,6 +72,9 @@ function renderAttendanceList(selectedAttendance = []) {
   }).join("");
 }
 
+/***********************
+ * ATTENDEES MANAGER UI (ATTENDEES TAB)
+ ***********************/
 function renderAttendeesManager() {
   const container = document.getElementById("attendeesList");
   if (!container) return;
@@ -71,8 +100,8 @@ function addAttendee() {
   const nameEl = document.getElementById("newAttendeeName");
   const emailEl = document.getElementById("newAttendeeEmail");
 
-  const name = nameEl.value.trim();
-  const email = emailEl.value.trim();
+  const name = (nameEl?.value || "").trim();
+  const email = (emailEl?.value || "").trim();
 
   if (!name) {
     alert("Please enter a name.");
@@ -84,12 +113,12 @@ function addAttendee() {
 
   setAttendees(attendees);
 
-  nameEl.value = "";
-  emailEl.value = "";
+  if (nameEl) nameEl.value = "";
+  if (emailEl) emailEl.value = "";
 
   renderAttendeesManager();
-  renderAttendanceList(getCurrentAttendanceSelection()); // keep meeting page in sync
-  saveDraft(); // so refresh keeps everything
+  renderAttendanceList(getCurrentAttendanceSelection());
+  saveDraft();
 }
 
 function deleteAttendee(attendeeId) {
@@ -101,34 +130,58 @@ function deleteAttendee(attendeeId) {
   saveDraft();
 }
 
+/***********************
+ * ATTENDANCE SELECTION
+ * Returns: [{ attendeeId, present }]
+ ***********************/
 function getCurrentAttendanceSelection() {
-  // returns [{ attendeeId, present }]
   const selections = [];
   document.querySelectorAll("#attendanceList li").forEach(li => {
     const attendeeId = Number(li.dataset.attendeeId);
-    const present = li.querySelector('input[type="checkbox"]').checked;
+    const checkbox = li.querySelector('input[type="checkbox"]');
+    const present = checkbox ? checkbox.checked : false;
     selections.push({ attendeeId, present });
   });
   return selections;
 }
 
-// Pick the best mime type the browser supports
+/***********************
+ * BUILD ATTENDANCE RECORDS (FOR SAVE/DRAFT)
+ * Returns: [{ attendeeId, name, email, present }]
+ ***********************/
+function collectAttendanceRecords() {
+  const records = [];
+  document.querySelectorAll("#attendanceList li").forEach(li => {
+    const attendeeId = Number(li.dataset.attendeeId);
+    const present = !!li.querySelector('input[type="checkbox"]')?.checked;
+    const name = li.querySelector(".name")?.textContent?.trim() || "";
+    const email = li.querySelector(".email")?.value?.trim() || "";
+    records.push({ attendeeId, name, email, present });
+  });
+  return records;
+}
+
+/***********************
+ * MIME TYPE PICKER (iPhone-safe)
+ ***********************/
 function pickSupportedMimeType() {
   if (!window.MediaRecorder) return null;
 
   const types = [
-    "audio/mp4",               // often best for iOS
-    "audio/webm;codecs=opus",  // common on Chrome/desktop
+    "audio/mp4",
+    "audio/webm;codecs=opus",
     "audio/webm"
   ];
 
   for (const t of types) {
     if (MediaRecorder.isTypeSupported(t)) return t;
   }
-  return ""; // browser default
+  return "";
 }
 
-// Recording
+/***********************
+ * RECORDING CONTROLS
+ ***********************/
 async function startRecording() {
   try {
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -168,166 +221,115 @@ async function startRecording() {
 function stopRecording() {
   if (!mediaRecorder) return;
 
-  mediaRecorder.onstop = () => {
+  // ✅ MUST be async because we use await inside
+  mediaRecorder.onstop = async () => {
     stopTimer();
 
     const mimeType = mediaRecorder.mimeType || "audio/mp4";
     const audioBlob = new Blob(audioChunks, { type: mimeType });
     const audioUrl = URL.createObjectURL(audioBlob);
 
+    // Show playback
     const audio = document.getElementById("audioPlayback");
-    audio.src = audioUrl;
-    audio.style.display = "block";
+    if (audio) {
+      audio.src = audioUrl;
+      audio.style.display = "block";
+    }
 
-    // ✅ IMPORTANT for iPhone: release the microphone
+    // ✅ IMPORTANT for iPhone: release microphone
     if (recordingStream) {
       recordingStream.getTracks().forEach(t => t.stop());
       recordingStream = null;
     }
 
+    // Auto-transcribe into meetingNotes
     try {
       const notesBox = document.getElementById("meetingNotes");
+      if (!notesBox) throw new Error("meetingNotes textarea not found.");
 
-      // Optional: show a little status while transcribing
       const transcribeBtn = document.getElementById("transcribeBtn"); // only if you have one
       const oldBtnText = transcribeBtn?.textContent;
+
       if (transcribeBtn) {
         transcribeBtn.disabled = true;
         transcribeBtn.textContent = "Transcribing...";
       }
 
-  const transcript = await transcribeAudioBlob(audioBlob);
+      const transcript = await transcribeAudioBlob(audioBlob);
 
-  // Append transcript so you don't overwrite anything typed
-  notesBox.value = (notesBox.value ? notesBox.value + "\n\n" : "") + transcript;
+      notesBox.value =
+        (notesBox.value ? notesBox.value + "\n\n--- Recording Transcript ---\n\n" : "") +
+        transcript;
+      saveDraft();
 
-  saveDraft(); // keep your existing autosave behavior
-
-  if (transcribeBtn) {
-    transcribeBtn.disabled = false;
-    transcribeBtn.textContent = oldBtnText || "Transcribe";
-  }
-} catch (e) {
-  alert("Transcription failed: " + e.message);
-}
+      if (transcribeBtn) {
+        transcribeBtn.disabled = false;
+        transcribeBtn.textContent = oldBtnText || "Transcribe";
+      }
+    } catch (e) {
+      alert("Transcription failed: " + (e?.message || e));
+    }
   };
 
   mediaRecorder.stop();
 }
 
-  function startTimer() {
-    secondsElapsed = 0;
+/***********************
+ * TIMER UI
+ ***********************/
+function startTimer() {
+  secondsElapsed = 0;
+  updateTimerDisplay();
+
+  timerInterval = setInterval(() => {
+    secondsElapsed++;
     updateTimerDisplay();
+  }, 1000);
+}
 
-    timerInterval = setInterval(() => {
-      secondsElapsed++;
-      updateTimerDisplay();
-    }, 1000);
-  }
+function stopTimer() {
+  if (timerInterval) clearInterval(timerInterval);
+  timerInterval = null;
+}
 
-  function stopTimer() {
-    clearInterval(timerInterval);
-  }
+function updateTimerDisplay() {
+  const minutes = String(Math.floor(secondsElapsed / 60)).padStart(2, "0");
+  const seconds = String(secondsElapsed % 60).padStart(2, "0");
+  const timerEl = document.getElementById("timer");
+  if (timerEl) timerEl.textContent = `${minutes}:${seconds}`;
+}
 
-  function updateTimerDisplay() {
-    const minutes = String(Math.floor(secondsElapsed / 60)).padStart(2, "0");
-    const seconds = String(secondsElapsed % 60).padStart(2, "0");
-    document.getElementById("timer").textContent = `${minutes}:${seconds}`;
-  }
+/***********************
+ * TRANSCRIPTION (AUDIO BLOB -> TEXT)
+ ***********************/
+async function transcribeAudioBlob(audioBlob) {
+  const form = new FormData();
 
-  async function transcribeAudioBlob(audioBlob) {
-    const form = new FormData();
-
-    // filename + mime type helps the transcription endpoint
-    const filename = audioBlob.type?.includes("mp4") || audioBlob.type?.includes("m4a")
+  const filename =
+    audioBlob.type?.includes("mp4") || audioBlob.type?.includes("m4a")
       ? "meeting-audio.m4a"
       : "meeting-audio.webm";
 
-    const file = new File([audioBlob], filename, { type: audioBlob.type || "audio/webm" });
-    form.append("file", file);
+  const file = new File([audioBlob], filename, { type: audioBlob.type || "audio/webm" });
+  form.append("file", file);
 
-    const res = await fetch("https://meeting-minutes-ai.chl20001.workers.dev/transcribe", {
-      method: "POST",
-      body: form,
-    });
-
-    const data = await res.json().catch(() => ({}));
-
-    if (!res.ok) {
-      throw new Error(data?.message || data?.error || `Transcription failed (status ${res.status})`);
-    }
-
-    return data.text || "";
-  }
-
-  function saveMeeting() {
-    const title = document.getElementById("meetingTitle").value.trim();
-    const date = document.getElementById("meetingDate").value;
-    const notes = document.getElementById("meetingNotes").value;
-    const minutes = document.getElementById("meetingMinutes")?.value || "";
-
-    const attendance = getCurrentAttendanceSelection();
-    document.querySelectorAll("#attendanceList li").forEach(li => {
-      const present = li.querySelector('input[type="checkbox"]').checked;
-      const name = li.querySelector(".name").textContent.trim();
-      const email = li.querySelector(".email").value.trim();
-
-      attendance.push({ name, email, present });
-    });
-
-    let meetings = getMeetings();
-
-    // Build meeting object
-    const meeting = {
-      id: currentMeetingId ?? Date.now(),
-      title,
-      date,
-      notes,
-      minutes,
-      attendance
-    };
-
-    if (currentMeetingId === null) {
-      // CREATE
-      meetings.push(meeting);
-      alert("Meeting saved.");
-    } else {
-      // UPDATE
-      meetings = meetings.map(m => (m.id === currentMeetingId ? meeting : m));
-      alert("Meeting updated.");
-    }
-
-    setMeetings(meetings);
-
-    clearDraft();
-    saveDraft(); // immediately store the latest state as a fresh draft
-
-    // If you're on Saved tab, refresh list
-    if (document.getElementById("view-saved")?.classList.contains("active")) {
-      renderSavedMeetings();
-    }
-  }
-
-//Navigation
-  document.querySelectorAll(".nav-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
-      // buttons
-      document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-
-      // views
-      const target = btn.dataset.target;
-      document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
-      document.getElementById(target).classList.add("active");
-
-      // optional: refresh saved list when opening Saved tab
-      if (target === "view-saved") {
-        renderSavedMeetings();
-      }
-    });
+  const res = await fetch(`${AI_ENDPOINT}/transcribe`, {
+    method: "POST",
+    body: form,
   });
 
-//Save Meeting
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    throw new Error(data?.message || data?.error || `Transcription failed (status ${res.status})`);
+  }
+
+  return data.text || "";
+}
+
+/***********************
+ * MEETINGS STORAGE (SAVE/LOAD)
+ ***********************/
 function getMeetings() {
   return JSON.parse(localStorage.getItem("meetings")) || [];
 }
@@ -336,16 +338,54 @@ function setMeetings(meetings) {
   localStorage.setItem("meetings", JSON.stringify(meetings));
 }
 
+function saveMeeting() {
+  const title = document.getElementById("meetingTitle")?.value.trim() || "";
+  const date = document.getElementById("meetingDate")?.value || "";
+  const notes = document.getElementById("meetingNotes")?.value || "";
+  const minutes = document.getElementById("meetingMinutes")?.value || "";
+
+  // ✅ One clean attendance structure
+  const attendance = collectAttendanceRecords();
+
+  let meetings = getMeetings();
+
+  const meeting = {
+    id: currentMeetingId ?? Date.now(),
+    title,
+    date,
+    notes,
+    minutes,
+    attendance,
+  };
+
+  if (currentMeetingId === null) {
+    meetings.push(meeting);
+    alert("Meeting saved.");
+  } else {
+    meetings = meetings.map(m => (m.id === currentMeetingId ? meeting : m));
+    alert("Meeting updated.");
+  }
+
+  setMeetings(meetings);
+
+  clearDraft();
+  saveDraft();
+
+  if (document.getElementById("view-saved")?.classList.contains("active")) {
+    renderSavedMeetings();
+  }
+}
+
 function renderSavedMeetings() {
   const list = document.getElementById("savedMeetingsList");
-  const meetings = getMeetings();
+  if (!list) return;
 
+  const meetings = getMeetings();
   if (!meetings.length) {
     list.innerHTML = "No saved meetings yet.";
     return;
   }
 
-  // newest first
   const sorted = [...meetings].sort((a, b) => b.id - a.id);
 
   list.innerHTML = sorted.map(m => {
@@ -381,18 +421,8 @@ function openMeeting(meetingId) {
   if (minutesEl) minutesEl.value = meeting.minutes || "";
 
   // Restore attendance
-  if (Array.isArray(meeting.attendance)) {
-    document.querySelectorAll("#attendanceList li").forEach(li => {
-      const name = li.querySelector(".name").textContent.trim();
-      const match = meeting.attendance.find(a => a.name === name);
-      if (!match) return;
+  renderAttendanceList(meeting.attendance || []);
 
-      li.querySelector('input[type="checkbox"]').checked = !!match.present;
-      li.querySelector(".email").value = match.email || "";
-    });
-  }
-
-  // Change button label
   const saveBtn = document.getElementById("saveBtn");
   if (saveBtn) saveBtn.textContent = "Update Meeting";
 
@@ -404,25 +434,6 @@ function deleteMeeting(meetingId) {
   const filtered = meetings.filter(m => m.id !== meetingId);
   setMeetings(filtered);
   renderSavedMeetings();
-}
-
-function switchView(viewId) {
-  document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
-  document.getElementById(viewId).classList.add("active");
-
-  document.querySelectorAll(".nav-btn").forEach(btn => btn.classList.remove("active"));
-  const btn = document.querySelector(`.nav-btn[data-target="${viewId}"]`);
-  if (btn) btn.classList.add("active");
-}
-
-// tiny helper so titles can’t break your HTML
-function escapeHtml(str) {
-  return String(str)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
 }
 
 function newMeeting() {
@@ -441,30 +452,51 @@ function newMeeting() {
   if (saveBtn) saveBtn.textContent = "Save Meeting";
 }
 
-// Auto Save 
+/***********************
+ * NAVIGATION (TAB SWITCHING)
+ ***********************/
+function switchView(viewId) {
+  document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+  document.getElementById(viewId)?.classList.add("active");
+
+  document.querySelectorAll(".nav-btn").forEach(btn => btn.classList.remove("active"));
+  const btn = document.querySelector(`.nav-btn[data-target="${viewId}"]`);
+  if (btn) btn.classList.add("active");
+}
+
+document.querySelectorAll(".nav-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+
+    const target = btn.dataset.target;
+    document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+    document.getElementById(target)?.classList.add("active");
+
+    if (target === "view-saved") renderSavedMeetings();
+  });
+});
+
+/***********************
+ * DRAFT AUTOSAVE (LOCALSTORAGE)
+ ***********************/
 function collectDraftData() {
   const title = document.getElementById("meetingTitle")?.value || "";
   const date = document.getElementById("meetingDate")?.value || "";
   const notes = document.getElementById("meetingNotes")?.value || "";
   const minutes = document.getElementById("meetingMinutes")?.value || "";
 
-  const attendance = getCurrentAttendanceSelection();
-    document.querySelectorAll("#attendanceList li").forEach(li => {
-      const present = li.querySelector('input[type="checkbox"]').checked;
-      const name = li.querySelector(".name").textContent.trim();
-      const email = li.querySelector(".email").value.trim();
-
-      attendance.push({ name, email, present });
-    });
+  // ✅ same clean attendance structure
+  const attendance = collectAttendanceRecords();
 
   return {
-    currentMeetingId, // so drafts stay tied to an opened meeting
+    currentMeetingId,
     title,
     date,
     notes,
     minutes,
     attendance,
-    savedAt: Date.now()
+    savedAt: Date.now(),
   };
 }
 
@@ -484,18 +516,16 @@ function loadDraft() {
     return;
   }
 
-  // restore current meeting context
   currentMeetingId = draft.currentMeetingId ?? null;
 
-  if (document.getElementById("meetingTitle")) document.getElementById("meetingTitle").value = draft.title || "";
-  if (document.getElementById("meetingDate")) document.getElementById("meetingDate").value = draft.date || "";
-  if (document.getElementById("meetingNotes")) document.getElementById("meetingNotes").value = draft.notes || "";
-  if (document.getElementById("meetingMinutes")) document.getElementById("meetingMinutes").value = draft.minutes || "";
+  document.getElementById("meetingTitle").value = draft.title || "";
+  document.getElementById("meetingDate").value = draft.date || "";
+  document.getElementById("meetingNotes").value = draft.notes || "";
+  const minutesEl = document.getElementById("meetingMinutes");
+  if (minutesEl) minutesEl.value = draft.minutes || "";
 
-  // restore attendance
   renderAttendanceList(draft.attendance || []);
 
-  // update save button label based on whether editing an existing meeting
   const saveBtn = document.getElementById("saveBtn");
   if (saveBtn) saveBtn.textContent = currentMeetingId ? "Update Meeting" : "Save Meeting";
 }
@@ -505,11 +535,9 @@ function clearDraft() {
 }
 
 function startAutoSave() {
-  // Save frequently, but lightly
   if (autoSaveTimer) clearInterval(autoSaveTimer);
   autoSaveTimer = setInterval(saveDraft, 2000);
 
-  // Also save on user interactions (more responsive)
   const watchIds = ["meetingTitle", "meetingDate", "meetingNotes", "meetingMinutes"];
   watchIds.forEach(id => {
     const el = document.getElementById(id);
@@ -521,63 +549,9 @@ function startAutoSave() {
   });
 }
 
-window.addEventListener("load", () => {
-  loadDraft();
-  startAutoSave();
-});
-
-//Email 
-document.getElementById("emailBtn").addEventListener("click", () => {
-  const title = document.getElementById("meetingTitle")?.value.trim() || "Meeting";
-  const date = document.getElementById("meetingDate")?.value || new Date().toLocaleDateString();
-
-  const minutesText = getFormattedMinutes();
-
-  const attendees = getAttendees();
-  const presentSelections = getCurrentAttendanceSelection();
-  const presentMap = new Map(presentSelections.map(a => [a.attendeeId, a.present]));
-
-  const recipients = attendees
-    .filter(a => presentMap.get(a.id))
-    .map(a => (a.email || "").trim())
-    .filter(email => email.includes("@"));
-
-  if (!recipients.length) {
-    alert("No attendee emails selected. Mark attendees present and add their emails in Attendees.");
-    return;
-  }
-
-  const subject = encodeURIComponent(`Meeting Minutes - ${title} (${date})`);
-  const body = encodeURIComponent(minutesText);
-
-  window.location.href = `mailto:${recipients.join(",")}?subject=${subject}&body=${body}`;
-});
-
-// Add button on Attendees Tab
-window.addEventListener("load", () => {
-  loadDraft();
-  startAutoSave();
-
-  // Attendees page
-  const addBtn = document.getElementById("addAttendeeBtn");
-  if (addBtn) addBtn.addEventListener("click", addAttendee);
-
-  // Initial renders
-  renderAttendeesManager();
-  renderAttendanceList(getCurrentAttendanceSelection());
-});
-
-// Helper?
-function escapeHtml(str) {
-  return String(str)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
-// AI MIN
+/***********************
+ * AI MINUTES BUTTON (NOTES -> MINUTES)
+ ***********************/
 document.getElementById("aiMinutesBtn")?.addEventListener("click", async () => {
   const notes = document.getElementById("meetingNotes")?.value || "";
   const title = document.getElementById("meetingTitle")?.value || "";
@@ -588,54 +562,72 @@ document.getElementById("aiMinutesBtn")?.addEventListener("click", async () => {
     return;
   }
 
-  // present attendee names
-    const attendees = getAttendees();
-    const presentSelections = getCurrentAttendanceSelection();
-    const presentMap = new Map(presentSelections.map(a => [a.attendeeId, a.present]));
-    const presentNames = attendees.filter(a => presentMap.get(a.id)).map(a => a.name);
+  const attendees = getAttendees();
+  const presentSelections = getCurrentAttendanceSelection();
+  const presentMap = new Map(presentSelections.map(a => [a.attendeeId, a.present]));
+  const presentNames = attendees.filter(a => presentMap.get(a.id)).map(a => a.name);
 
-    const btn = document.getElementById("aiMinutesBtn");
-    const oldText = btn.textContent;
+  const btn = document.getElementById("aiMinutesBtn");
+  const oldText = btn?.textContent || "Generate";
+  if (btn) {
     btn.disabled = true;
     btn.textContent = "Generating...";
+  }
 
-    // NEW: timeout protection
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 45000);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 45000);
 
-    try {
-      const res = await fetch(AI_ENDPOINT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ notes, title, date, attendees: presentNames }),
-        signal: controller.signal, // NEW
-      });
+  try {
+    const res = await fetch(AI_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notes, title, date, attendees: presentNames }),
+      signal: controller.signal,
+    });
 
-      // NEW: don’t crash if response isn’t JSON
-      const data = await res.json().catch(() => ({}));
+    const data = await res.json().catch(() => ({}));
 
-      // NEW: better error messages (supports {message} or {error})
-      if (!res.ok) {
-        const msg = data?.message || data?.error || `AI request failed (status ${res.status})`;
-        throw new Error(msg);
-      }
+    if (!res.ok) {
+      const msg = data?.message || data?.error || `AI request failed (status ${res.status})`;
+      throw new Error(msg);
+    }
 
-      // NEW: validate minutes
-      const minutes = data.minutes || "";
-      if (!minutes) throw new Error("AI returned no minutes.");
+    const minutes = data.minutes || "";
+    if (!minutes) throw new Error("AI returned no minutes.");
 
-      document.getElementById("meetingMinutes").value = minutes;
-      saveDraft();
-    } catch (e) {
-      const msg =
-        e.name === "AbortError"
-          ? "AI request timed out. Try again."
-          : e.message;
+    const minutesBox = document.getElementById("meetingMinutes");
+    if (minutesBox) minutesBox.value = minutes;
 
-      alert("AI failed: " + msg);
-    } finally {
-      clearTimeout(timeoutId); // NEW
+    saveDraft();
+  } catch (e) {
+    const msg = e.name === "AbortError" ? "AI request timed out. Try again." : (e.message || String(e));
+    alert("AI failed: " + msg);
+  } finally {
+    clearTimeout(timeoutId);
+    if (btn) {
       btn.disabled = false;
       btn.textContent = oldText;
     }
+  }
+});
+
+/***********************
+ * INITIAL PAGE SETUP
+ ***********************/
+window.addEventListener("load", () => {
+  // Draft + autosave
+  loadDraft();
+  startAutoSave();
+
+  // Attendees tab button
+  document.getElementById("addAttendeeBtn")?.addEventListener("click", addAttendee);
+
+  // Initial renders
+  renderAttendeesManager();
+  renderAttendanceList(getCurrentAttendanceSelection());
+
+  // (Optional) If you have buttons wired in HTML:
+  document.getElementById("startBtn")?.addEventListener("click", startRecording);
+  document.getElementById("stopBtn")?.addEventListener("click", stopRecording);
+  document.getElementById("saveBtn")?.addEventListener("click", saveMeeting);
 });
